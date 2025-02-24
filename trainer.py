@@ -1,7 +1,7 @@
 # Import necessary libraries for fine tuning and handling datasets
 import os
 import torch
-from torch.amp import GradScaler, autocast  # Updated import for GradScaler
+from torch.amp import GradScaler, autocast  # Updated import for GradScaler and autocast
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import Dataset
 from huggingface_hub import login
@@ -72,7 +72,6 @@ def prepare_dataset(texts, tokenizer, max_length=256):
 class CustomTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Updated GradScaler syntax for PyTorch >= 2.0
         self.scaler = GradScaler('cuda', enabled=torch.cuda.is_available())  # Specify 'cuda' device
 
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -80,13 +79,14 @@ class CustomTrainer(Trainer):
         attention_mask = inputs['attention_mask']
         labels = inputs['labels']
 
-        with autocast():
+        # Use autocast with explicit device_type
+        with autocast(device_type='cuda'):
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
 
         return (loss, outputs) if return_outputs else loss
 
-    def training_step(self, model, inputs, num_items_in_batch):  # Added num_items_in_batch
+    def training_step(self, model, inputs, num_items_in_batch):
         model.train()
         inputs = self._prepare_inputs(inputs)
 
