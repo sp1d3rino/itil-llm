@@ -1,7 +1,6 @@
 # Import necessary libraries for fine tuning and handling datasets
 import os
 import torch
-from torch.cuda.amp import GradScaler, autocast  # For mixed precision training
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import Dataset
 from huggingface_hub import login
@@ -14,6 +13,7 @@ print(f"CUDA available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.current_device()} - {torch.cuda.get_device_name(0)}")
     print(f"CUDA version: {torch.version.cuda}")
+    assert torch.version.cuda == "12.4", f"Expected CUDA 12.4, but got {torch.version.cuda}"
 
 # Function to extract text from different file types
 def extract_text_from_files(file_paths):
@@ -66,28 +66,6 @@ def prepare_dataset(texts, tokenizer, max_length=512):
     
     return Dataset.from_dict(dataset_dict)
 
-# Custom Trainer to handle FP16 with GradScaler
-class CustomTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.scaler = GradScaler()  # Initialize gradient scaler for FP16
-
-    def training_step(self, model, inputs, **kwargs):
-        model.train()
-        inputs = self._prepare_inputs(inputs)
-
-        # Use autocast for mixed precision
-        with autocast():
-            loss = self.compute_loss(model, inputs)
-
-        # Scale gradients and backpropagate
-        self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-
-        return loss.detach()
-
 # Main fine tuning function with GPU and Hugging Face token
 def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
     # Authenticate with Hugging Face
@@ -118,12 +96,12 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
         logging_dir='./logs',
         logging_steps=10,
         learning_rate=2e-5,
-        fp16=True,  # Enable mixed precision
+        fp16=True,  # Enable native mixed precision training
         dataloader_num_workers=0,
     )
 
-    # Initialize CustomTrainer with FP16 support
-    trainer = CustomTrainer(
+    # Initialize standard Trainer (no custom class needed)
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
@@ -146,7 +124,7 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
 # Example usage
 if __name__ == "__main__":
     hf_token = input("Enter your Hugging Face token: ")
-    file_paths = ['ITIL.pdf']
+    file_paths = ['ITIL.pdf', 'data.csv', 'notes.txt', 'config.json']
     fine_tune_model(
         file_paths=file_paths,
         hf_token=hf_token,
