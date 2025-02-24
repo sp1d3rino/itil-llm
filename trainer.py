@@ -14,6 +14,7 @@ if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.current_device()} - {torch.cuda.get_device_name(0)}")
     print(f"CUDA version: {torch.version.cuda}")
     assert torch.version.cuda == "12.4", f"Expected CUDA 12.4, but got {torch.version.cuda}"
+    print(f"Free GPU memory: {torch.cuda.memory_reserved(0) / 1024**3:.2f} GiB / {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GiB")
 
 # Function to extract text from different file types
 def extract_text_from_files(file_paths):
@@ -41,7 +42,7 @@ def extract_text_from_files(file_paths):
     return texts
 
 # Function to prepare dataset with prompts for summarization and reasoning
-def prepare_dataset(texts, tokenizer, max_length=512):
+def prepare_dataset(texts, tokenizer, max_length=256):  # Reduced from 512
     training_texts = []
     for text in texts:
         chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
@@ -75,7 +76,7 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     # Load tokenizer and model (using Phi-2)
     tokenizer = AutoTokenizer.from_pretrained('microsoft/phi-2', token=hf_token)
     tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS
-    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float32)
+    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float16)
 
     # Move model to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,21 +87,22 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     texts = extract_text_from_files(file_paths)
     dataset = prepare_dataset(texts, tokenizer)
 
-    # Define training arguments with GPU settings
+    # Define training arguments with GPU settings and memory optimization
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=3,
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=1,  # Reduced to 1 to save memory
+        gradient_accumulation_steps=2,  # Accumulate gradients to simulate batch size of 2
         save_steps=500,
         save_total_limit=2,
         logging_dir='./logs',
         logging_steps=10,
         learning_rate=2e-5,
-        fp16=False,  # Enable native mixed precision training
+        fp16=True,  # Enable native mixed precision training
         dataloader_num_workers=0,
     )
 
-    # Initialize standard Trainer (no custom class needed)
+    # Initialize standard Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
