@@ -1,6 +1,7 @@
 # Import necessary libraries for fine tuning and handling datasets
 import os
 import torch
+from torch.cuda.amp import GradScaler, autocast  # For manual mixed precision
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import Dataset
 from huggingface_hub import login
@@ -42,7 +43,7 @@ def extract_text_from_files(file_paths):
     return texts
 
 # Function to prepare dataset with prompts for summarization and reasoning
-def prepare_dataset(texts, tokenizer, max_length=256):  # Reduced from 512
+def prepare_dataset(texts, tokenizer, max_length=256):
     training_texts = []
     for text in texts:
         chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
@@ -66,6 +67,40 @@ def prepare_dataset(texts, tokenizer, max_length=256):  # Reduced from 512
     }
     
     return Dataset.from_dict(dataset_dict)
+
+# Custom Trainer to handle FP16 manually
+class CustomTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.scaler = GradScaler(enabled=torch.cuda.is_available())  # Enable scaler only if CUDA is available
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # Extract inputs and labels
+        input_ids = inputs['input_ids']
+        attention_mask = inputs['attention_mask']
+        labels = inputs['labels']
+
+        # Forward pass with autocast for mixed precision
+        with autocast():
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+            loss = outputs.loss
+
+        return (loss, outputs) if return_outputs else loss
+
+    def training_step(self, model, inputs):
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+
+        # Compute loss with mixed precision
+        loss = self.compute_loss(model, inputs)
+
+        # Backward pass with gradient scaling
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad()
+
+        return loss.detach() / self.args.gradient_accumulation_steps
 
 # Main fine tuning function with GPU and Hugging Face token
 def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
@@ -91,19 +126,19 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=3,
-        per_device_train_batch_size=1,  # Reduced to 1 to save memory
-        gradient_accumulation_steps=2,  # Accumulate gradients to simulate batch size of 2
+        per_device_train_batch_size=1,  # Reduced for memory
+        gradient_accumulation_steps=2,  # Accumulate gradients
         save_steps=500,
         save_total_limit=2,
         logging_dir='./logs',
         logging_steps=10,
         learning_rate=2e-5,
-        fp16=True,  # Enable native mixed precision training
+        fp16=True,  # Enable mixed precision (handled manually in CustomTrainer)
         dataloader_num_workers=0,
     )
 
-    # Initialize standard Trainer
-    trainer = Trainer(
+    # Initialize CustomTrainer
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
