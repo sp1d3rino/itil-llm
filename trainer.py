@@ -75,19 +75,17 @@ class CustomTrainer(Trainer):
         self.scaler = GradScaler(enabled=torch.cuda.is_available())  # Enable scaler only if CUDA is available
 
     def compute_loss(self, model, inputs, return_outputs=False):
-        # Extract inputs and labels
         input_ids = inputs['input_ids']
         attention_mask = inputs['attention_mask']
         labels = inputs['labels']
 
-        # Forward pass with autocast for mixed precision
         with autocast():
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
 
         return (loss, outputs) if return_outputs else loss
 
-    def training_step(self, model, inputs):
+    def training_step(self, model, inputs, **kwargs):  # Added **kwargs to handle extra arguments
         model.train()
         inputs = self._prepare_inputs(inputs)
 
