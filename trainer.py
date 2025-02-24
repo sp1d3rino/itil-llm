@@ -3,6 +3,7 @@ import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import Dataset
+from huggingface_hub import login  # For Hugging Face authentication
 import PyPDF2
 import pandas as pd
 import json
@@ -43,7 +44,6 @@ def prepare_dataset(texts, tokenizer, max_length=512):
     for text in texts:
         chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
         for chunk in chunks:
-            # Prompt optimized for summarization and reasoning
             prompt = f"Provide a concise summary of the following content:\n{chunk.strip()}\nSummary: "
             training_texts.append(prompt)
     
@@ -64,12 +64,16 @@ def prepare_dataset(texts, tokenizer, max_length=512):
     
     return Dataset.from_dict(dataset_dict)
 
-# Main fine tuning function with GPU support
-def fine_tune_model(file_paths, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
+# Main fine tuning function with GPU and Hugging Face token
+def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
+    # Authenticate with Hugging Face using the provided token
+    login(token=hf_token)
+    print("Successfully authenticated with Hugging Face")
+
     # Load tokenizer and model (using Phi-2)
-    tokenizer = AutoTokenizer.from_pretrained('microsoft/phi-2')
+    tokenizer = AutoTokenizer.from_pretrained('microsoft/phi-2', token=hf_token)
     tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS
-    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', torch_dtype=torch.float16)
+    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float16)
 
     # Move model to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -83,15 +87,15 @@ def fine_tune_model(file_paths, output_dir='fine_tuned_model', push_to_hub=False
     # Define training arguments with GPU settings
     training_args = TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=3,  # More epochs for better learning
-        per_device_train_batch_size=2,  # Smaller batch size due to larger model
+        num_train_epochs=3,
+        per_device_train_batch_size=2,
         save_steps=500,
         save_total_limit=2,
         logging_dir='./logs',
         logging_steps=10,
-        learning_rate=2e-5,  # Lower learning rate for stability with larger model
-        fp16=True,  # Mixed precision training for GPU
-        dataloader_num_workers=0,  # 0 for Windows compatibility
+        learning_rate=2e-5,
+        fp16=True,
+        dataloader_num_workers=0,
     )
 
     # Initialize Trainer
@@ -111,15 +115,18 @@ def fine_tune_model(file_paths, output_dir='fine_tuned_model', push_to_hub=False
 
     # Optionally push to Hugging Face Hub
     if push_to_hub and hub_model_name:
-        model.push_to_hub(hub_model_name)
-        tokenizer.push_to_hub(hub_model_name)
+        model.push_to_hub(hub_model_name, use_auth_token=hf_token)
+        tokenizer.push_to_hub(hub_model_name, use_auth_token=hf_token)
         print(f"Model pushed to Hugging Face Hub as {hub_model_name}")
 
 # Example usage
 if __name__ == "__main__":
-    file_paths = ['ITIL.pdf']
+    # Replace with your actual Hugging Face token
+    hf_token = input("Enter your Hugging Face token: ")
+    file_paths = ['example.pdf', 'data.csv', 'notes.txt', 'config.json']
     fine_tune_model(
         file_paths=file_paths,
+        hf_token=hf_token,
         output_dir='my_fine_tuned_phi2',
         push_to_hub=True,
         hub_model_name='your-username/my-fine-tuned-phi2'  # Replace with your details
