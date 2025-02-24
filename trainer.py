@@ -72,7 +72,7 @@ class CustomTrainer(Trainer):
         super().__init__(*args, **kwargs)
         self.scaler = GradScaler()  # Initialize gradient scaler for FP16
 
-    def training_step(self, model, inputs):
+    def training_step(self, model, inputs, **kwargs):
         model.train()
         inputs = self._prepare_inputs(inputs)
 
@@ -152,5 +152,5 @@ if __name__ == "__main__":
         hf_token=hf_token,
         output_dir='my_fine_tuned_phi2',
         push_to_hub=True,
-        hub_model_name='fabras/itil-llm'  # Replace with your details
+        hub_model_name='fabras/my-fine-tuned-phi2'  # Replace with your details
     )
