@@ -2,6 +2,7 @@
 import os
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from peft import LoraConfig, get_peft_model  # Import PEFT and LoRA
 from datasets import Dataset
 from huggingface_hub import login
 import PyPDF2
@@ -67,13 +68,13 @@ def prepare_dataset(texts, tokenizer, max_length=256):
     
     return Dataset.from_dict(dataset_dict)
 
-# Main fine tuning function with GPU and Hugging Face token
+# Main fine tuning function with GPU, Hugging Face token, and LoRA
 def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
     # Authenticate with Hugging Face
     login(token=hf_token)
     print("Successfully authenticated with Hugging Face")
 
-    # Load tokenizer and model (using Phi-2)
+    # Load tokenizer and base model (using Phi-2)
     tokenizer = AutoTokenizer.from_pretrained('microsoft/phi-2', token=hf_token)
     tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS
     model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float16)
@@ -81,7 +82,25 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     # Move model to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    print(f"Model loaded on: {device}")
+    print(f"Base model loaded on: {device}")
+
+    # Configure LoRA
+    lora_config = LoraConfig(
+        r=16,  # Rank of the low-rank matrices
+        lora_alpha=32,  # Scaling factor
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],  # Target attention layers in Phi-2
+        lora_dropout=0.05,  # Dropout for regularization
+        bias="none",  # No bias in LoRA adapters
+        task_type="CAUSAL_LM"  # Task type for causal language modeling
+    )
+
+    # Apply LoRA to the model
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()  # Show trainable parameters for verification
+    print("LoRA adapters applied to the model")
+
+    # Move the PEFT model to GPU (re-apply after LoRA)
+    model.to(device)
 
     # Extract and prepare dataset
     texts = extract_text_from_files(file_paths)
@@ -112,16 +131,16 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     # Perform fine tuning
     trainer.train()
 
-    # Save the fine-tuned model locally
+    # Save the fine-tuned LoRA adapters and tokenizer locally
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
-    print(f"Model saved locally to {output_dir}")
+    print(f"LoRA fine-tuned model saved locally to {output_dir}")
 
     # Optionally push to Hugging Face Hub
     if push_to_hub and hub_model_name:
         model.push_to_hub(hub_model_name, use_auth_token=hf_token)
         tokenizer.push_to_hub(hub_model_name, use_auth_token=hf_token)
-        print(f"Model pushed to Hugging Face Hub as {hub_model_name}")
+        print(f"LoRA fine-tuned model pushed to Hugging Face Hub as {hub_model_name}")
 
 # Example usage
 if __name__ == "__main__":
@@ -130,7 +149,7 @@ if __name__ == "__main__":
     fine_tune_model(
         file_paths=file_paths,
         hf_token=hf_token,
-        output_dir='my_fine_tuned_phi2',
+        output_dir='my_fine_tuned_phi2_lora',
         push_to_hub=True,
-        hub_model_name='fabras/my-fine-tuned-phi2'  # Replace with your details
+        hub_model_name='fabras/my-fine-tuned-phi2-lora'  # Replace with your details
     )
