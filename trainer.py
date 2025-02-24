@@ -123,7 +123,7 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
 if __name__ == "__main__":
     # Replace with your actual Hugging Face token
     hf_token = input("Enter your Hugging Face token: ")
-    file_paths = ['example.pdf', 'data.csv', 'notes.txt', 'config.json']
+    file_paths = ['ITIL.pdf']
     fine_tune_model(
         file_paths=file_paths,
         hf_token=hf_token,
