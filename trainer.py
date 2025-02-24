@@ -75,7 +75,7 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
     # Load tokenizer and model (using Phi-2)
     tokenizer = AutoTokenizer.from_pretrained('microsoft/phi-2', token=hf_token)
     tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS
-    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float16)
+    model = AutoModelForCausalLM.from_pretrained('microsoft/phi-2', token=hf_token, torch_dtype=torch.float32)
 
     # Move model to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
