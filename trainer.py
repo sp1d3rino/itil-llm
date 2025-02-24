@@ -129,5 +129,5 @@ if __name__ == "__main__":
         hf_token=hf_token,
         output_dir='my_fine_tuned_phi2',
         push_to_hub=True,
-        hub_model_name='your-username/my-fine-tuned-phi2'  # Replace with your details
+        hub_model_name='fabras/itil-llm'  # Replace with your details
     )
