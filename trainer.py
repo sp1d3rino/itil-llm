@@ -1,7 +1,6 @@
 # Import necessary libraries for fine tuning and handling datasets
 import os
 import torch
-from torch.amp import GradScaler, autocast  # Updated import for GradScaler and autocast
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
 from datasets import Dataset
 from huggingface_hub import login
@@ -68,39 +67,6 @@ def prepare_dataset(texts, tokenizer, max_length=256):
     
     return Dataset.from_dict(dataset_dict)
 
-# Custom Trainer to handle FP16 manually
-class CustomTrainer(Trainer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.scaler = GradScaler('cuda', enabled=torch.cuda.is_available())  # Specify 'cuda' device
-
-    def compute_loss(self, model, inputs, return_outputs=False):
-        input_ids = inputs['input_ids']
-        attention_mask = inputs['attention_mask']
-        labels = inputs['labels']
-
-        # Use autocast with explicit device_type
-        with autocast(device_type='cuda'):
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
-
-        return (loss, outputs) if return_outputs else loss
-
-    def training_step(self, model, inputs, num_items_in_batch):
-        model.train()
-        inputs = self._prepare_inputs(inputs)
-
-        # Compute loss with mixed precision
-        loss = self.compute_loss(model, inputs)
-
-        # Backward pass with gradient scaling
-        self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
-        self.optimizer.zero_grad()
-
-        return loss.detach() / self.args.gradient_accumulation_steps
-
 # Main fine tuning function with GPU and Hugging Face token
 def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to_hub=False, hub_model_name=None):
     # Authenticate with Hugging Face
@@ -132,12 +98,12 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
         logging_dir='./logs',
         logging_steps=10,
         learning_rate=2e-5,
-        fp16=True,  # Enable mixed precision (handled manually in CustomTrainer)
+        fp16=True,  # Enable native mixed precision training
         dataloader_num_workers=0,
     )
 
-    # Initialize CustomTrainer
-    trainer = CustomTrainer(
+    # Initialize standard Trainer
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
