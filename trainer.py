@@ -96,7 +96,7 @@ def fine_tune_model(file_paths, hf_token, output_dir='fine_tuned_model', push_to
         logging_dir='./logs',
         logging_steps=10,
         learning_rate=2e-5,
-        fp16=True,  # Enable native mixed precision training
+        fp16=False,  # Enable native mixed precision training
         dataloader_num_workers=0,
     )
 
